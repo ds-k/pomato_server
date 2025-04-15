@@ -1,60 +1,26 @@
-import { Injectable, UnauthorizedException, Inject } from '@nestjs/common';
-import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
-import * as bcrypt from 'bcrypt';
-import { IAuthRepository } from './interfaces/auth.repository.interface';
+import { Injectable } from '@nestjs/common';
+import { CreateAuthDto } from './dto/create-auth.dto';
+import { UpdateAuthDto } from './dto/update-auth.dto';
 
 @Injectable()
 export class AuthService {
-  constructor(
-    @Inject('IAuthRepository')
-    private readonly authRepository: IAuthRepository,
-  ) {}
-
-  async login(loginDto: LoginDto) {
-    const user = await this.authRepository.findByEmail(loginDto.email);
-
-    if (!user) {
-      throw new UnauthorizedException(
-        '이메일 또는 비밀번호가 일치하지 않습니다',
-      );
-    }
-
-    const isPasswordValid = await bcrypt.compare(
-      loginDto.password,
-      user.password,
-    );
-    if (!isPasswordValid) {
-      throw new UnauthorizedException(
-        '이메일 또는 비밀번호가 일치하지 않습니다',
-      );
-    }
-
-    return {
-      message: '로그인 성공',
-      user: {
-        email: user.email,
-        name: user.name,
-      },
-    };
+  create(createAuthDto: CreateAuthDto) {
+    return 'This action adds a new auth';
   }
 
-  async register(registerDto: RegisterDto) {
-    const existingUser = await this.authRepository.findByEmail(
-      registerDto.email,
-    );
-    if (existingUser) {
-      throw new UnauthorizedException('이미 존재하는 이메일입니다');
-    }
+  findAll() {
+    return `This action returns all auth`;
+  }
 
-    const user = await this.authRepository.createUser(registerDto);
+  findOne(id: number) {
+    return `This action returns a #${id} auth`;
+  }
 
-    return {
-      message: '회원가입 성공',
-      user: {
-        email: user.email,
-        name: user.name,
-      },
-    };
+  update(id: number, updateAuthDto: UpdateAuthDto) {
+    return `This action updates a #${id} auth`;
+  }
+
+  remove(id: number) {
+    return `This action removes a #${id} auth`;
   }
 }
