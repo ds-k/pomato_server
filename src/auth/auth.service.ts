@@ -1,60 +1,61 @@
-import { Injectable, UnauthorizedException, Inject } from '@nestjs/common';
-import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
-import * as bcrypt from 'bcrypt';
-import { IAuthRepository } from './interfaces/auth.repository.interface';
+import { Injectable } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class AuthService {
   constructor(
-    @Inject('IAuthRepository')
-    private readonly authRepository: IAuthRepository,
+    private jwtService: JwtService,
+    private prisma: PrismaService,
   ) {}
 
-  async login(loginDto: LoginDto) {
-    const user = await this.authRepository.findByEmail(loginDto.email);
-
-    if (!user) {
-      throw new UnauthorizedException(
-        '이메일 또는 비밀번호가 일치하지 않습니다',
-      );
+  async googleLogin(req) {
+    if (!req.user) {
+      return 'No user from google';
     }
 
-    const isPasswordValid = await bcrypt.compare(
-      loginDto.password,
-      user.password,
-    );
-    if (!isPasswordValid) {
-      throw new UnauthorizedException(
-        '이메일 또는 비밀번호가 일치하지 않습니다',
-      );
-    }
+    // 사용자 조회 또는 생성
+    const user = await this.findOrCreateUser(req.user);
+
+    // JWT 토큰 생성
+    const payload = {
+      email: user.email,
+      sub: user.id,
+    };
 
     return {
-      message: '로그인 성공',
-      user: {
-        email: user.email,
-        name: user.name,
-      },
+      access_token: this.jwtService.sign(payload),
+      user: user,
     };
   }
 
-  async register(registerDto: RegisterDto) {
-    const existingUser = await this.authRepository.findByEmail(
-      registerDto.email,
-    );
+  private async findOrCreateUser(googleUser) {
+    // 기존 사용자 조회
+    const existingUser = await this.prisma.user.findUnique({
+      where: {
+        email: googleUser.email,
+      },
+    });
+
     if (existingUser) {
-      throw new UnauthorizedException('이미 존재하는 이메일입니다');
+      // 기존 사용자가 있는 경우 정보 업데이트
+      return await this.prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          lastLogin: new Date(),
+        },
+      });
     }
 
-    const user = await this.authRepository.createUser(registerDto);
-
-    return {
-      message: '회원가입 성공',
-      user: {
-        email: user.email,
-        name: user.name,
+    // 새로운 사용자 생성
+    return await this.prisma.user.create({
+      data: {
+        email: googleUser.email,
+        name: `${googleUser.firstName} ${googleUser.lastName}`.trim(),
+        profileImage: googleUser.picture,
+        provider: 'google',
+        lastLogin: new Date(),
       },
-    };
+    });
   }
 }
