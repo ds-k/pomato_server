@@ -1,26 +1,61 @@
 import { Injectable } from '@nestjs/common';
-import { CreateAuthDto } from './dto/create-auth.dto';
-import { UpdateAuthDto } from './dto/update-auth.dto';
+import { JwtService } from '@nestjs/jwt';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class AuthService {
-  create(createAuthDto: CreateAuthDto) {
-    return 'This action adds a new auth';
+  constructor(
+    private jwtService: JwtService,
+    private prisma: PrismaService,
+  ) {}
+
+  async googleLogin(req) {
+    if (!req.user) {
+      return 'No user from google';
+    }
+
+    // 사용자 조회 또는 생성
+    const user = await this.findOrCreateUser(req.user);
+
+    // JWT 토큰 생성
+    const payload = {
+      email: user.email,
+      sub: user.id,
+    };
+
+    return {
+      access_token: this.jwtService.sign(payload),
+      user: user,
+    };
   }
 
-  findAll() {
-    return `This action returns all auth`;
-  }
+  private async findOrCreateUser(googleUser) {
+    // 기존 사용자 조회
+    const existingUser = await this.prisma.user.findUnique({
+      where: {
+        email: googleUser.email,
+      },
+    });
 
-  findOne(id: number) {
-    return `This action returns a #${id} auth`;
-  }
+    if (existingUser) {
+      // 기존 사용자가 있는 경우 정보 업데이트
+      return await this.prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          lastLogin: new Date(),
+        },
+      });
+    }
 
-  update(id: number, updateAuthDto: UpdateAuthDto) {
-    return `This action updates a #${id} auth`;
-  }
-
-  remove(id: number) {
-    return `This action removes a #${id} auth`;
+    // 새로운 사용자 생성
+    return await this.prisma.user.create({
+      data: {
+        email: googleUser.email,
+        name: `${googleUser.firstName} ${googleUser.lastName}`.trim(),
+        profileImage: googleUser.picture,
+        provider: 'google',
+        lastLogin: new Date(),
+      },
+    });
   }
 }
