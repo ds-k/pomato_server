@@ -1,13 +1,13 @@
 services:
   postgres:
     image: postgres:latest
-    container_name: ylj-postgres
+    container_name: pomato-postgres
     ports:
       - '5432:5432'
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: ylj_db
+      POSTGRES_DB: pomato_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
