@@ -42,20 +42,44 @@ export class AuthService {
         throw new UnauthorizedException('Invalid provider');
     }
 
-    // 사용자 조회 또는 생성
     const user = await this.findOrCreateUser(userPayload, provider);
 
-    // JWT 토큰 생성
-    const payload = {
-      email: user.email,
+    const accessPayload = {
       sub: user.id,
+      role: user.role,
     };
 
+    const refreshPayload = {
+      sub: user.id,
+      type: 'refresh',
+    };
+
+    const accessToken = this.jwtService.sign(accessPayload, {
+      expiresIn: '1h',
+    });
+    const refreshToken = this.jwtService.sign(refreshPayload, {
+      expiresIn: '7d',
+    });
+
     return {
-      access_token: this.jwtService.sign(payload),
-      user: user,
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      provider: provider,
     };
   }
+
+  // logout을 할때 refresh token을 블랙리스트에 추가
+  // 블랙리스트에 추가된 토큰은 더이상 사용할 수 없음
+  // 그래서 블랙리스트를 주기적으로 비울수 있는 redis를 활용
+
+  // acessToken 만료가 됐을때, 401 unauthorized 에러 던지기
+  // flutter dio 측에서 login 엔드포인트에 요청을 보낸다 (login body에서 검증)
+  // 검증 통과하면 새로운 accessToken 발급
+  // 새로운 accessToken 발급 후 기존 accessToken 블랙리스트에 추가
+  // 기존 accessToken 블랙리스트에 추가된 토큰은 더이상 사용할 수 없음
+  // 그래서 블랙리스트를 주기적으로 비울수 있는 redis를 활용
+  // 블랙리스트에 추가된 토큰은 더이상 사용할 수 없음
+  // 그래서 블랙리스트를 주기적으로 비울수 있는 redis를 활용
 
   private async verifyGoogleToken(token: string) {
     try {
@@ -65,7 +89,6 @@ export class AuthService {
       });
 
       const payload = ticket.getPayload();
-      console.log('google payload', payload);
       if (!payload) {
         throw new UnauthorizedException('Invalid Google token payload');
       }
