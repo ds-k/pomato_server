@@ -32,4 +32,14 @@ export class AuthController {
   async socialLogin(@Body() body: { provider: string; token: string }) {
     return this.authService.socialLogin(body);
   }
+
+  @Post('refresh')
+  async refresh(@Body() body: { refreshToken: string }) {
+    return this.authService.refresh(body);
+  }
+
+  @Post('logout')
+  async logout(@Body() body: { refreshToken: string }) {
+    return this.authService.logout(body);
+  }
 }
