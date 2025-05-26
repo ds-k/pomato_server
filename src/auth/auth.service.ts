@@ -4,6 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OAuth2Client } from 'google-auth-library';
 import * as jwt from 'jsonwebtoken';
 import jwksClient = require('jwks-rsa');
+import { User } from '@prisma/client';
+import { RedisService } from '../redis/redis.service';
 
 @Injectable()
 export class AuthService {
@@ -13,6 +15,7 @@ export class AuthService {
   constructor(
     private jwtService: JwtService,
     private prisma: PrismaService,
+    private redisService: RedisService,
   ) {
     this.oauth2Client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
     this.appleJwksClient = jwksClient({
@@ -44,6 +47,23 @@ export class AuthService {
 
     const user = await this.findOrCreateUser(userPayload, provider);
 
+    return this.generateTokens(user);
+  }
+
+  // logout을 할때 refresh token을 블랙리스트에 추가
+  // 블랙리스트에 추가된 토큰은 더이상 사용할 수 없음
+  // 그래서 블랙리스트를 주기적으로 비울수 있는 redis를 활용
+
+  // acessToken 만료가 됐을때, 401 unauthorized 에러 던지기
+  // flutter dio 측에서 login 엔드포인트에 요청을 보낸다 (login body에서 검증)
+  // 검증 통과하면 새로운 accessToken 발급
+  // 새로운 accessToken 발급 후 기존 accessToken 블랙리스트에 추가
+  // 기존 accessToken 블랙리스트에 추가된 토큰은 더이상 사용할 수 없음
+  // 그래서 블랙리스트를 주기적으로 비울수 있는 redis를 활용
+  // 블랙리스트에 추가된 토큰은 더이상 사용할 수 없음
+  // 그래서 블랙리스트를 주기적으로 비울수 있는 redis를 활용
+
+  private async generateTokens(user: User) {
     const accessPayload = {
       sub: user.id,
       role: user.role,
@@ -64,22 +84,9 @@ export class AuthService {
     return {
       access_token: accessToken,
       refresh_token: refreshToken,
-      provider: provider,
+      provider: user.provider,
     };
   }
-
-  // logout을 할때 refresh token을 블랙리스트에 추가
-  // 블랙리스트에 추가된 토큰은 더이상 사용할 수 없음
-  // 그래서 블랙리스트를 주기적으로 비울수 있는 redis를 활용
-
-  // acessToken 만료가 됐을때, 401 unauthorized 에러 던지기
-  // flutter dio 측에서 login 엔드포인트에 요청을 보낸다 (login body에서 검증)
-  // 검증 통과하면 새로운 accessToken 발급
-  // 새로운 accessToken 발급 후 기존 accessToken 블랙리스트에 추가
-  // 기존 accessToken 블랙리스트에 추가된 토큰은 더이상 사용할 수 없음
-  // 그래서 블랙리스트를 주기적으로 비울수 있는 redis를 활용
-  // 블랙리스트에 추가된 토큰은 더이상 사용할 수 없음
-  // 그래서 블랙리스트를 주기적으로 비울수 있는 redis를 활용
 
   private async verifyGoogleToken(token: string) {
     try {
@@ -251,5 +258,46 @@ export class AuthService {
     const epochTime = Math.floor(Date.now() / 1000) % 10000;
 
     return `${randomAdjective}${randomNoun}${epochTime}`;
+  }
+
+  async refresh(body: { refreshToken: string }) {
+    const { refreshToken } = body;
+
+    const decoded = this.jwtService.verify(refreshToken);
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: decoded.sub },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    return this.generateTokens(user);
+  }
+
+  async logout(body: { refreshToken: string }) {
+    const { refreshToken } = body;
+    console.log(refreshToken);
+    try {
+      const decoded = this.jwtService.verify(refreshToken);
+
+      // 토큰의 남은 유효시간 계산
+      const exp = decoded.exp;
+      const now = Math.floor(Date.now() / 1000);
+      const timeLeft = exp - now;
+
+      if (timeLeft > 0) {
+        // Redis 블랙리스트에 추가
+        await this.redisService.addToBlacklist(refreshToken, timeLeft);
+      }
+      // 블랙리스트 잘 들어갔는지 체크..
+      const exists = await this.redisService.isBlacklisted(refreshToken);
+      console.log(`Token ${refreshToken} is blacklisted: ${exists}`);
+
+      return { message: 'Logged out successfully' };
+    } catch (error) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
   }
 }
